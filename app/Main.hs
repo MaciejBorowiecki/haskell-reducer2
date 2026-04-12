@@ -28,19 +28,24 @@ main = do
   args <- getArgs
   case args of
     ["--help"] -> usage
-    [] -> getContents >>= putStrLn
     [f] -> do
       code <- readFile f
       let prog = fromHsString code
+          dmap = buildDefMap prog
       putStrLn "--- Def list (prog) ---"
       putStr (show prog)
-      putStrLn "\n--- DefMap  ---"
-      putStrLn (show (buildDefMap prog))
+      putStrLn "\n--- Reduction Path ---"
+      case Map.lookup "main" dmap of
+        Just (Def _ _ body) -> printPath dmap body
+        Nothing -> error "No `main` combinator given."
+
     _ -> usage
 
 usage :: IO ()
 usage = do
-  putStrLn "pass"
+  putStrLn "Usage: zadanie2 [--help] [file]"
+  putStrLn "--help\t- display this message"
+  putStrLn "file\t- file with program to reduce"
 
 -- parser utils
 
@@ -101,7 +106,7 @@ checkName name (x : xs) =
   if name == x
     then True
     else checkName name xs
-checkName name [] = False
+checkName _ [] = False
 
 -- get the new name for `p` if `p` taken
 freeName :: Name -> [Name] -> Name
@@ -192,3 +197,6 @@ rpath :: DefMap -> Expr -> [Expr]
 rpath dmap e = e : case rstep dmap e of 
   Nothing -> []
   Just nextE -> rpath dmap nextE
+
+printPath :: DefMap -> Expr -> IO ()
+printPath dmap e = putStr(unlines [show step | step <- (take 30 (rpath dmap e))])
