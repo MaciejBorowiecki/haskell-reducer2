@@ -187,3 +187,8 @@ rstep dmap expr =
               else reduceChildren dmap expr
           Nothing -> reduceChildren dmap expr
       _ -> reduceChildren dmap expr -- chyba niemożliwe?
+
+rpath :: DefMap -> Expr -> [Expr]
+rpath dmap e = e : case rstep dmap e of 
+  Nothing -> []
+  Just nextE -> rpath dmap nextE
