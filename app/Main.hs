@@ -32,12 +32,15 @@ main = do
       code <- readFile f
       let prog = fromHsString code
           dmap = buildDefMap prog
-      putStrLn "--- Def list (prog) ---"
-      putStr (show prog)
-      putStrLn "\n--- Reduction Path ---"
-      case Map.lookup "main" dmap of
-        Just (Def _ _ body) -> printPath dmap body
-        Nothing -> error "No `main` combinator given."
+          defs = progDefs prog
+      case validateProgram defs dmap of
+        Just errMsg -> putStrLn errMsg
+        Nothing -> do
+          putStr (show prog)
+          putStrLn "------------------------------------------------------------"
+          case Map.lookup "main" dmap of
+            Just (Def _ _ body) -> printPath dmap body
+            Nothing -> error "No `main` combinator given."
 
     _ -> usage
 
@@ -54,7 +57,7 @@ fromHsString code = Prog (fromParseResult (parseModule code))
 
 fromParseResult :: ParseResult HsModule -> [Def]
 fromParseResult (ParseOk moduleTree) = fromHsModule moduleTree
-fromParseResult (ParseFailed _ msg) = error $ "syntax error while parsing" ++ msg
+fromParseResult (ParseFailed _ msg) = error $ "syntax error while parsing " ++ msg
 
 -- HsModule SrcLoc Module (Maybe [HsExportSpec]) [HsImportDecl] [HsDecl]
 fromHsModule :: HsModule -> [Def]
@@ -68,20 +71,22 @@ fromHsDecl (HsPatBind _ (HsPApp (UnQual (HsIdent name)) hsArgs) (HsUnGuardedRhs 
   Def name (map fromHsArg hsArgs) (fromHsExpr hsExpr)
 fromHsDecl (HsPatBind _ (HsPVar (HsIdent name)) (HsUnGuardedRhs hsExpr) _) =
   Def name [] (fromHsExpr hsExpr)
-fromHsDecl _ = error "fromHsDecl"
+fromHsDecl (HsFunBind (name:_:_))
+  = error ("Error: Multiple definitions for the same combinator " ++ show name)
+fromHsDecl _ = error "Unexpected fromHsDecl error."
 
 fromHsArg :: HsPat -> Pat
 fromHsArg (HsPVar (HsIdent name)) = name
 fromHsArg (HsPApp (UnQual (HsIdent name)) []) = name
 fromHsArg (HsPParen inter) = fromHsArg inter
-fromHsArg _ = error "fromHsArg"
+fromHsArg _ = error "Unexpected fromHsArg error."
 
 fromHsExpr :: HsExp -> Expr
 fromHsExpr (HsVar (UnQual (HsIdent name))) = Var name
 fromHsExpr (HsCon (UnQual (HsIdent name))) = Var name
 fromHsExpr (HsApp e1 e2) = fromHsExpr e1 :$ fromHsExpr e2
 fromHsExpr (HsParen e) = fromHsExpr e
-fromHsExpr _ = error "fromHsExpr"
+fromHsExpr _ = error "Unexpected fromHsExpr error."
 
 insertDefMapHelper :: Def -> DefMap -> DefMap
 insertDefMapHelper (Def name args expr) dmap = Map.insert name (Def name args expr) dmap
@@ -200,3 +205,48 @@ rpath dmap e = e : case rstep dmap e of
 
 printPath :: DefMap -> Expr -> IO ()
 printPath dmap e = putStr(unlines [show step | step <- (take 30 (rpath dmap e))])
+
+-- program validation
+
+-- check for duplicate definition names
+checkDupNames :: [Def] -> [Name] -> Maybe String
+checkDupNames [] _ = Nothing
+checkDupNames (Def name _ _ : ds) seen =
+  if checkName name seen
+  then Just ("Error: combinator '" ++ name ++ "' is used several times.")
+  else checkDupNames ds (name : seen)
+
+-- checks for duplicates on the list
+hasDuplicates :: [Name] -> [Name] -> Bool
+hasDuplicates [] _ = False
+hasDuplicates (x:xs) seen = 
+  if checkName x seen 
+    then True 
+    else hasDuplicates xs (x : seen)
+
+-- check for duplicate params in the definition
+checkDupParams :: [Def] -> Maybe String
+checkDupParams [] = Nothing
+checkDupParams (Def name params _ : ds) =
+  if hasDuplicates params []
+  then Just ("Error: There are repeated arguments n combinator '" ++ name ++ "'.")
+  else checkDupParams ds
+
+-- check whether main defitinion is occurs and is correct
+checkMainDef :: DefMap -> Maybe String
+checkMainDef dmap =
+  case Map.lookup "main" dmap of
+    Nothing -> Just "Error: no `main` definition."
+    Just (Def _ params _) -> 
+      if length params == 0
+        then Nothing
+        else Just "Error: `main` should have 0 parameters."
+
+-- check all conditions above
+validateProgram :: [Def] -> DefMap -> Maybe String
+validateProgram defs dmap =
+  case checkDupNames defs [] of
+    Just err -> Just err
+    Nothing -> case checkDupParams defs of
+      Just err -> Just err
+      Nothing -> checkMainDef dmap
