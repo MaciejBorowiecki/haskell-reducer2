@@ -30,7 +30,7 @@ fromHsString code = Prog (fromParseResult (parseModule code))
 
 fromParseResult :: ParseResult HsModule -> [Def]
 fromParseResult (ParseOk moduleTree) = fromHsModule moduleTree 
-fromParseResult (ParseFailed loc msg) = error $ "syntax error while parsing" ++ msg
+fromParseResult (ParseFailed _ msg) = error $ "syntax error while parsing" ++ msg
 
 -- HsModule SrcLoc Module (Maybe [HsExportSpec]) [HsImportDecl] [HsDecl]
 fromHsModule :: HsModule -> [Def]
@@ -40,12 +40,21 @@ fromHsModule (HsModule _ _ _ _ decls) = map fromHsDecl decls
 fromHsDecl :: HsDecl -> Def
 fromHsDecl (HsFunBind [HsMatch _ (HsIdent name) hsArgs (HsUnGuardedRhs hsExpr) _]) 
   = Def name (map fromHsArg hsArgs) (fromHsExpr hsExpr)
-fromHsDecl _ = error "todo"
+fromHsDecl (HsPatBind _ (HsPApp (UnQual (HsIdent name)) hsArgs) (HsUnGuardedRhs hsExpr) _)
+  = Def name (map fromHsArg hsArgs) (fromHsExpr hsExpr)
+fromHsDecl (HsPatBind _ (HsPVar (HsIdent name)) (HsUnGuardedRhs hsExpr) _)
+  = Def name [] (fromHsExpr hsExpr)
+fromHsDecl _ = error "fromHsDecl"
 
 fromHsArg :: HsPat -> Pat
 fromHsArg (HsPVar (HsIdent name)) = name
-fromHsArg _ = error "todo"
+fromHsArg (HsPApp (UnQual (HsIdent name)) []) = name
+fromHsArg (HsPParen inter) = fromHsArg inter
+fromHsArg _ = error "fromHsArg"
 
 fromHsExpr :: HsExp -> Expr
 fromHsExpr (HsVar (UnQual (HsIdent name))) = Var name
-fromHsExpr _ = error "todo"
+fromHsExpr (HsCon (UnQual (HsIdent name))) = Var name
+fromHsExpr (HsApp e1 e2) = fromHsExpr e1 :$ fromHsExpr e2
+fromHsExpr (HsParen e) = fromHsExpr e
+fromHsExpr _ = error "fromHsExpr"
