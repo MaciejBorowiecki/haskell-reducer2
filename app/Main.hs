@@ -3,12 +3,14 @@ module Main where
 import Language.Haskell.Parser
 import Language.Haskell.Syntax
 import System.Environment
+import qualified Data.Map as Map
 
 data Def = Def Name [Pat] Expr deriving Show
 data Expr = Var Name | Expr :$ Expr deriving Show
 type Pat = Name
 type Name = String
 newtype Prog = Prog {progDefs :: [Def]} deriving Show
+type DefMap = Map.Map Name Def
 
 main :: IO ()
 main = do
@@ -24,6 +26,7 @@ usage :: IO ()
 usage = do 
   putStrLn "pass"
 
+-- parser utils
 
 fromHsString :: String -> Prog
 fromHsString code = Prog (fromParseResult (parseModule code))
@@ -39,7 +42,7 @@ fromHsModule (HsModule _ _ _ _ decls) = map fromHsDecl decls
 -- HsFunBind (HsMatch SrcLoc HsName [HsPat] HsRhs [HsDecl])
 fromHsDecl :: HsDecl -> Def
 fromHsDecl (HsFunBind [HsMatch _ (HsIdent name) hsArgs (HsUnGuardedRhs hsExpr) _]) 
-  = Def name (map fromHsArg hsArgs) (fromHsExpr hsExpr)
+  = Def name (map fromHsArg hsArgs) (fromHsExpr hsExpr)  
 fromHsDecl (HsPatBind _ (HsPApp (UnQual (HsIdent name)) hsArgs) (HsUnGuardedRhs hsExpr) _)
   = Def name (map fromHsArg hsArgs) (fromHsExpr hsExpr)
 fromHsDecl (HsPatBind _ (HsPVar (HsIdent name)) (HsUnGuardedRhs hsExpr) _)
@@ -58,3 +61,18 @@ fromHsExpr (HsCon (UnQual (HsIdent name))) = Var name
 fromHsExpr (HsApp e1 e2) = fromHsExpr e1 :$ fromHsExpr e2
 fromHsExpr (HsParen e) = fromHsExpr e
 fromHsExpr _ = error "fromHsExpr"
+
+-- reduction utils
+
+
+insertDefMapHelper :: Def -> DefMap -> DefMap
+insertDefMapHelper (Def name args expr) dmap = Map.insert name (Def name args expr) dmap
+
+buildDefMap :: Prog -> DefMap
+buildDefMap (Prog defs) = foldr insertDefMapHelper Map.empty defs
+
+-- insertDefMapHelper :: Def -> DefMap -> DefMap
+-- insertDefMapHelper (Def name args expr) acc = Map.insert name (Def name args expr) acc
+--
+-- buildDefMap :: Prog -> DefMap
+-- buildDefMap (Prog defs) = foldr insertDefMapHelper Map.empty defs
